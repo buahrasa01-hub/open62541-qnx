@@ -48,6 +48,17 @@ main(void) {
     }
     printf("PASS: eventloop created (POSIX/select fallback)\n");
 
+    /* The eventloop must be started before run() accepts iterations:
+     * start() creates the self-pipe and moves state FRESH -> STARTED.
+     * (Forgetting this makes run() return BADINTERNALERROR and no timer
+     * ever fires.) */
+    UA_StatusCode sres = el->start(el);
+    if(sres != UA_STATUSCODE_GOOD) {
+        printf("FAIL: eventloop start (0x%08x)\n", (unsigned)sres);
+        return 1;
+    }
+    printf("PASS: eventloop started (self-pipe created)\n");
+
     UA_StatusCode res =
         el->addTimer(el, cb100, NULL, NULL, 100.0, NULL,
                      UA_TIMERPOLICY_CURRENTTIME, NULL);
@@ -66,9 +77,10 @@ main(void) {
     struct timespec start, now;
     clock_gettime(CLOCK_MONOTONIC, &start);
     do {
-        UA_DateTime next = el->run(el, 10); /* 10 ms slices */
-        if(next == 0) {
-            printf("FAIL: eventloop run returned 0 datetime\n");
+        /* run() returns a UA_StatusCode (GOOD on success) */
+        UA_StatusCode rres = el->run(el, 10); /* 10 ms slices */
+        if(rres != UA_STATUSCODE_GOOD) {
+            printf("FAIL: eventloop run returned 0x%08x\n", (unsigned)rres);
             failures++;
             break;
         }

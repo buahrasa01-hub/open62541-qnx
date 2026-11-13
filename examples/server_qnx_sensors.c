@@ -178,25 +178,26 @@ main(int argc, char *argv[]) {
     if(runSeconds <= 0.0) {
         res = UA_Server_runUntilInterrupt(server);
     } else {
+        /* NOTE: UA_Server_run_iterate returns the milliseconds until the
+         * next scheduled callback (UA_UInt16) -- NOT a UA_StatusCode.
+         * Treating a non-zero return as an error kills the server on the
+         * first iteration. The upstream pattern is to ignore the return
+         * value and loop until the deadline. */
         struct timespec start, now;
         clock_gettime(CLOCK_MONOTONIC, &start);
         res = UA_Server_run_startup(server);
         if(res == UA_STATUSCODE_GOOD) {
             for(;;) {
-                res = UA_Server_run_iterate(server, true);
-                if(res != UA_STATUSCODE_GOOD)
-                    break;
+                (void)UA_Server_run_iterate(server, true);
                 clock_gettime(CLOCK_MONOTONIC, &now);
                 double elapsed = (double)(now.tv_sec - start.tv_sec) +
                     (double)(now.tv_nsec - start.tv_nsec) / 1e9;
                 if(elapsed >= runSeconds)
                     break;
             }
-            UA_StatusCode sres = UA_Server_run_shutdown(server);
-            if(res == UA_STATUSCODE_GOOD)
-                res = sres;
+            res = UA_Server_run_shutdown(server);
         }
-        printf("QNX-SENSORS-DONE ran %.1fs, parts=%u\n", runSeconds,
+        printf("QNX-SENSORS-DONE requested %.1fs, parts=%u\n", runSeconds,
                partsCount);
     }
 
