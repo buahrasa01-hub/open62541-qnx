@@ -64,8 +64,11 @@ addVariable(UA_Server *server, UA_NodeId nodeId, const char *name,
             const UA_DataType *dataType, UA_Variant initialValue,
             UA_Byte accessLevel) {
     UA_VariableAttributes attr = UA_VariableAttributes_default;
-    attr.displayName = UA_LOCALIZEDTEXT("en-US", name);
-    attr.description = UA_LOCALIZEDTEXT("en-US", name);
+    /* UA_LOCALIZEDTEXT / UA_QUALIFIEDNAME take char* (not const); the
+     * strings are string literals / the caller's const name — cast, the
+     * API only reads them. Keeps the build warning-free. */
+    attr.displayName = UA_LOCALIZEDTEXT("en-US", (char *)name);
+    attr.description = UA_LOCALIZEDTEXT("en-US", (char *)name);
     attr.dataType = dataType->typeId;
     attr.valueRank = UA_VALUERANK_SCALAR;
     attr.accessLevel = accessLevel;
@@ -74,7 +77,7 @@ addVariable(UA_Server *server, UA_NodeId nodeId, const char *name,
         server, nodeId,
         UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
         UA_NODEID_NUMERIC(0, UA_NS0ID_ORGANIZES),
-        UA_QUALIFIEDNAME(NS, name),
+        UA_QUALIFIEDNAME(NS, (char *)name),
         UA_NODEID_NUMERIC(0, UA_NS0ID_BASEDATAVARIABLETYPE),
         attr, NULL, NULL);
 }
