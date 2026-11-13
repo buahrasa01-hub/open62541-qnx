@@ -5,12 +5,22 @@
  *   ns=1;i=1002  Vibration    (Double, mm/s, read-only)
  *   ns=1;i=1003  Count        (UInt32, produced parts, read-only)
  *   ns=1;i=1004  Setpoint     (Double, deg C, read-write)
+ *   ns=1;i=1005  FanSpeed     (Double, %, read-write — cooling fan)
+ *   ns=1;i=1006  Alarm        (Boolean, read-only — over-temperature or
+ *                               high-vibration alarm)
  *
- * A 500 ms repeated callback updates the sensor values; Temperature drifts
- * toward the operator Setpoint. Security: None (UA_ENABLE_ENCRYPTION=OFF
- * build, v1 scope). Listens on opc.tcp://0.0.0.0:4840.
+ * A 500 ms repeated callback updates the sensor values. Temperature is a
+ * state variable that approaches the operator Setpoint with first-order
+ * lag (faster with a higher FanSpeed) plus small process noise; Vibration
+ * rises with FanSpeed; Alarm trips when Temperature exceeds Setpoint + 3 C
+ * or Vibration exceeds 2.5 mm/s. Security: None (UA_ENABLE_ENCRYPTION=OFF
+ * build, v1 scope — see the encryption note in the README). Listens on
+ * opc.tcp://0.0.0.0:4840.
  *
- * Usage: server_qnx_sensors [seconds]   (0 or omitted = run until Ctrl-C)
+ * Shutdown is clean: Ctrl-C / SIGTERM stops the server loop via
+ * UA_Server_runUntilInterrupt, and the timed mode runs run_shutdown
+ * before exit. Usage: server_qnx_sensors [seconds]
+ * (0 or omitted = run until Ctrl-C).
  *
  * Build (QNX target): see scripts/build-target.sh
  *   qcc -Vgcc_ntox86_64 -std=c99 -I<install>/include server_qnx_sensors.c \
@@ -32,14 +42,22 @@
 #define NODE_VIBRATION 1002
 #define NODE_COUNT 1003
 #define NODE_SETPOINT 1004
+#define NODE_FANSPEED 1005
+#define NODE_ALARM 1006
 
 static UA_NodeId temperatureId = {1, UA_NODEIDTYPE_NUMERIC, {NODE_TEMPERATURE}};
 static UA_NodeId vibrationId = {1, UA_NODEIDTYPE_NUMERIC, {NODE_VIBRATION}};
 static UA_NodeId countId = {1, UA_NODEIDTYPE_NUMERIC, {NODE_COUNT}};
 static UA_NodeId setpointId = {1, UA_NODEIDTYPE_NUMERIC, {NODE_SETPOINT}};
+static UA_NodeId fanSpeedId = {1, UA_NODEIDTYPE_NUMERIC, {NODE_FANSPEED}};
+static UA_NodeId alarmId = {1, UA_NODEIDTYPE_NUMERIC, {NODE_ALARM}};
 
 static double simTime = 0.0;
 static UA_UInt32 partsCount = 0;
+/* Process state: Temperature approaches the Setpoint with first-order lag
+ * instead of jumping to a closed-form value, so a setpoint change shows a
+ * visible transient (the behaviour a real control loop would show). */
+static double temperatureState = 22.0;
 
 static UA_StatusCode
 addVariable(UA_Server *server, UA_NodeId nodeId, const char *name,
@@ -67,7 +85,7 @@ updateSensors(UA_Server *server, void *data) {
     UA_Variant value;
     UA_Variant_init(&value);
 
-    /* Read the operator setpoint; temperature drifts toward it. */
+    /* Read the operator inputs; fall back to defaults if a read fails. */
     UA_Variant spValue;
     UA_Variant_init(&spValue);
     UA_StatusCode res =
@@ -78,14 +96,34 @@ updateSensors(UA_Server *server, void *data) {
         setpoint = *(UA_Double *)spValue.data;
     UA_Variant_clear(&spValue);
 
+    UA_Variant fsValue;
+    UA_Variant_init(&fsValue);
+    res = UA_Server_readValue(server, fanSpeedId, &fsValue);
+    double fanSpeed = 50.0;
+    if(res == UA_STATUSCODE_GOOD &&
+       UA_Variant_hasScalarType(&fsValue, &UA_TYPES[UA_TYPES_DOUBLE]))
+        fanSpeed = *(UA_Double *)fsValue.data;
+    UA_Variant_clear(&fsValue);
+    if(fanSpeed < 0.0)
+        fanSpeed = 0.0;
+    if(fanSpeed > 100.0)
+        fanSpeed = 100.0;
+
+    /* First-order lag toward the setpoint; the fan speeds the approach.
+     * Small sinusoidal terms are process noise, not the signal itself. */
     simTime += 0.5;
-    double temperature =
-        setpoint + 1.5 * sin(simTime / 9.0) + 0.4 * sin(simTime / 2.3);
+    double rate = 0.05 * (0.5 + fanSpeed / 100.0);
+    temperatureState += (setpoint - temperatureState) * rate +
+        0.05 * sin(simTime / 1.7);
+    double temperature = temperatureState;
     double vibration =
-        1.1 + 0.7 * sin(simTime / 3.7) + 0.3 * sin(simTime / 1.1);
+        0.8 + (fanSpeed / 100.0) * 1.2 + 0.3 * sin(simTime / 3.7) +
+        0.15 * sin(simTime / 1.1);
     if(vibration < 0.0)
         vibration = -vibration;
     partsCount += 1;
+
+    UA_Boolean alarm = (temperature > setpoint + 3.0) || (vibration > 2.5);
 
     UA_Variant_setScalar(&value, &temperature, &UA_TYPES[UA_TYPES_DOUBLE]);
     UA_Server_writeValue(server, temperatureId, value);
@@ -93,6 +131,8 @@ updateSensors(UA_Server *server, void *data) {
     UA_Server_writeValue(server, vibrationId, value);
     UA_Variant_setScalar(&value, &partsCount, &UA_TYPES[UA_TYPES_UINT32]);
     UA_Server_writeValue(server, countId, value);
+    UA_Variant_setScalar(&value, &alarm, &UA_TYPES[UA_TYPES_BOOLEAN]);
+    UA_Server_writeValue(server, alarmId, value);
 }
 
 int
@@ -164,6 +204,26 @@ main(int argc, char *argv[]) {
         return 1;
     }
 
+    d = 50.0;
+    UA_Variant_setScalar(&v, &d, &UA_TYPES[UA_TYPES_DOUBLE]);
+    res = addVariable(server, fanSpeedId, "FanSpeed",
+                      &UA_TYPES[UA_TYPES_DOUBLE], v,
+                      UA_ACCESSLEVELMASK_READ | UA_ACCESSLEVELMASK_WRITE);
+    if(res != UA_STATUSCODE_GOOD) {
+        fprintf(stderr, "FATAL: add FanSpeed failed 0x%08x\n", res);
+        return 1;
+    }
+
+    UA_Boolean b = false;
+    UA_Variant_setScalar(&v, &b, &UA_TYPES[UA_TYPES_BOOLEAN]);
+    res = addVariable(server, alarmId, "Alarm",
+                      &UA_TYPES[UA_TYPES_BOOLEAN], v,
+                      UA_ACCESSLEVELMASK_READ);
+    if(res != UA_STATUSCODE_GOOD) {
+        fprintf(stderr, "FATAL: add Alarm failed 0x%08x\n", res);
+        return 1;
+    }
+
     UA_UInt64 callbackId = 0;
     res = UA_Server_addRepeatedCallback(server, updateSensors, NULL,
                                         500.0, &callbackId);
@@ -172,7 +232,7 @@ main(int argc, char *argv[]) {
         return 1;
     }
 
-    printf("QNX-SENSORS-READY opc.tcp://0.0.0.0:4840 ns=1;i=1001..1004\n");
+    printf("QNX-SENSORS-READY opc.tcp://0.0.0.0:4840 ns=1;i=1001..1006\n");
     fflush(stdout);
 
     if(runSeconds <= 0.0) {

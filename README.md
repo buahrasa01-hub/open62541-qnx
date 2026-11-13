@@ -42,8 +42,16 @@ server, and a real client↔server round-trip on QNX-in-QEMU.
   - `test_server_client` — in-process server + client round-trip over
     loopback (connect, read value back).
 - Demo server `examples/server_qnx_sensors.c` runs on the target and serves
-  a host client (`tools/host_client.c`): read all four nodes, write the
-  setpoint + read-back, subscribe and receive data-change notifications.
+  a host client (`tools/host_client.c`): read all six nodes, write the
+  setpoint + fan speed with read-back, subscribe and receive data-change
+  notifications (see "Demo" below).
+- **Encrypted round-trip (stretch goal, verified):** with
+  `UA_ENABLE_ENCRYPTION=OPENSSL` (SDP-bundled OpenSSL 3.0.20) the library
+  builds clean, and `tests-on-target/test_encryption.c` passes on target —
+  a secure-only server (Basic256Sha256, SignAndEncrypt, no None endpoint)
+  and a client that reads a value back over the encrypted channel
+  (see "Encryption" below). The demo server itself still ships security
+  None; the encrypted build is a separate, verified configuration.
 
 Upstream unit tests that need the `libcheck` framework are **not** run on
 target — `libcheck` itself is not available for QNX 8.0. The tests in
@@ -57,10 +65,11 @@ patches/                        G1 + G2 + G3 + G4 as clean diffs vs upstream v1.
 cmake/toolchain-qnx-x86_64.cmake
                                 qcc + QNX system name (drops -lpthread/-lrt via G3)
 scripts/build.sh                clone v1.5.1 -> apply patches -> build lib + amalgamation
+scripts/build-encryption.sh     same, with UA_ENABLE_ENCRYPTION=OPENSSL + test_encryption
 scripts/build-target.sh         build demo server + on-target tests with qcc
 scripts/build-host-client.sh    build the host client (native gcc + amalgamation)
-examples/server_qnx_sensors.c   demo OPC UA server (sensors + writable setpoint)
-tests-on-target/                on-target tests (no libcheck dependency)
+examples/server_qnx_sensors.c   demo OPC UA server (sensors + writable setpoint/fan)
+tests-on-target/                on-target tests (no libcheck dependency), incl. test_encryption.c
 tools/host_client.c             host client: read / write / subscribe
 docs/                           notes (target verdict summary, codelab outline)
 ```
@@ -100,6 +109,55 @@ From the host (guest port 4840 forwarded):
 ./host_client opc.tcp://127.0.0.1:4840
 ```
 
+## Demo
+
+On the target (after booting the QEMU image — SSH on the forwarded port;
+the guest port 4840 is forwarded to the host):
+
+```sh
+./server_qnx_sensors 120     # run 120 s (0 = until Ctrl-C)
+```
+
+From the host:
+
+```sh
+./host_client opc.tcp://127.0.0.1:4840
+```
+
+What it checks (exit 0 only if every step passes): connect; read all six
+nodes; write Setpoint = 24.0 and FanSpeed = 75.0 with read-back; subscribe
+to Temperature + Count and collect data-change notifications for 5 s.
+Verified output (2026-11-13, QNX 8.0 under QEMU):
+
+```
+PASS: connected to opc.tcp://127.0.0.1:4840
+READ Temperature=22.27
+READ Vibration=1.56
+READ Count=9
+READ Setpoint=22.00
+READ FanSpeed=50.00
+READ Alarm=false
+PASS: all six nodes readable
+READ Setpoint-after-write=24.00
+PASS: Setpoint write/read-back 24.0
+READ FanSpeed-after-write=75.00
+PASS: FanSpeed write/read-back 75.0
+PASS: subscription created (id=1)
+PASS: monitored items created (ids 1, 2)
+NOTIFY Temperature=22.39
+NOTIFY Temperature=22.49
+...
+NOTIFY Temperature=22.84
+INFO: Temperature notifications=10, Count=10
+PASS: Temperature notifications >= 2
+PASS: Count notifications >= 2
+host-client: ALL PASS
+```
+
+Note the Temperature notifications climbing 22.39 → 22.84: after the
+Setpoint write to 24.0 the temperature visibly converges toward it —
+the first-order lag, not a jump.
+
 ## Demo server nodes
 
 Under `Objects/ProductionLine`, namespace 1:
@@ -110,10 +168,54 @@ Under `Objects/ProductionLine`, namespace 1:
 | ns=1;i=1002 | Vibration | Double (mm/s) | read |
 | ns=1;i=1003 | Count | UInt32 (parts) | read |
 | ns=1;i=1004 | Setpoint | Double (°C) | read + write |
+| ns=1;i=1005 | FanSpeed | Double (%) | read + write |
+| ns=1;i=1006 | Alarm | Boolean | read |
 
-Values update every 500 ms; Temperature drifts toward the Setpoint.
-Security: None (this build uses `UA_ENABLE_ENCRYPTION=OFF`; encrypted
-endpoints via the QNX dashboard's OpenSSL 3.6.3 are a stretch goal).
+Values update every 500 ms. Temperature is a state variable that
+approaches the Setpoint with first-order lag (faster with a higher
+FanSpeed) plus small process noise; Vibration rises with FanSpeed; Alarm
+trips when Temperature exceeds Setpoint + 3 °C or Vibration exceeds
+2.5 mm/s. Shutdown is clean: Ctrl-C / SIGTERM stops the server loop,
+and the timed mode runs `UA_Server_run_shutdown` before exit.
+Security: None (this build uses `UA_ENABLE_ENCRYPTION=OFF` — the
+encrypted configuration is verified separately, see "Encryption").
+
+## Encryption (verified stretch goal)
+
+The demo ships security None, but the encrypted configuration is real and
+verified on target — it is not a roadmap item:
+
+```sh
+scripts/build-encryption.sh    # -> build-encryption/install/lib/libopen62541.a
+                               # -> build-encryption/target/test_encryption
+```
+
+- OpenSSL comes from the SDP itself: **OpenSSL 3.0.20** bundled in SDP 8.0
+  (headers in `$QNX_TARGET/usr/include/openssl`, libs in
+  `$QNX_TARGET/x86_64/usr/lib/libcrypto.so` / `libssl.so`). No dashboard
+  download is needed, and the target image already ships `libcrypto.so.3`
+  and `libssl.so.3` in the IFS.
+- Build quirk: CMake's `FindOpenSSL` finds the headers and version from
+  the sysroot but **not** the libraries (they live in the arch-specific
+  `x86_64/usr/lib`, which `FindOpenSSL` does not search) — configure fails
+  with `missing: OPENSSL_CRYPTO_LIBRARY` unless both libraries are passed
+  explicitly; the script does that.
+- `tests-on-target/test_encryption.c` generates two self-signed
+  certificates in-process (RSA-2048, 14 days), starts a **secure-only**
+  server on port 4841 (`Basic256Sha256`, `SignAndEncrypt`, no None
+  endpoint), and connects a client configured the same way; it reads
+  `TestValue = 42` back over the encrypted channel. Verified on target
+  2026-11-13: `encryption: ALL PASS`. Runtime is ~90 s under QEMU/TCG,
+  mostly the two RSA-2048 key generations.
+- Two gotchas worth knowing (both in the test's comments):
+  `UA_ServerConfig_setDefaultWithSecureSecurityPolicies` resets the
+  config first, so the server's `ApplicationUri` must be set **after**
+  that call — setting it before is silently wiped. And the client's
+  `ApplicationUri` must match the URI in its certificate, or the server
+  rejects the session with `BadCertificateInvalid` at `CreateSession`.
+- The `EccNistP256` "Could not add SecurityPolicy" warnings at startup are
+  benign: the RSA test certificate cannot back an ECC policy, so that
+  policy is simply not offered.
 
 ## Upstream
 

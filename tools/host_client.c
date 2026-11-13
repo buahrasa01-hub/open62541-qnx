@@ -2,10 +2,13 @@
  *
  * Connects to the demo server (default opc.tcp://127.0.0.1:4840 — the QEMU
  * guest port is forwarded to the host, see run-qemu-slirp.sh), then:
- *   1. reads Temperature / Vibration / Count / Setpoint (ns=1;i=1001..1004)
- *   2. writes Setpoint = 24.0 and reads it back to verify the write
+ *   1. reads Temperature / Vibration / Count / Setpoint / FanSpeed / Alarm
+ *      (ns=1;i=1001..1006)
+ *   2. writes Setpoint = 24.0 and FanSpeed = 75.0, reads both back
  *   3. subscribes to Temperature + Count and waits for >= 2 data-change
  *      notifications on each (server updates every 500 ms)
+ *   4. checks Alarm is false in the normal regime (Temperature near the
+ *      Setpoint, Vibration well under 2.5 mm/s at FanSpeed 75)
  *
  * Prints PASS/FAIL lines; exit 0 only if every step passes.
  *
@@ -100,6 +103,28 @@ readUInt32(UA_Client *client, UA_UInt32 nodeIdNum, const char *name,
     return 0;
 }
 
+static int
+readBoolean(UA_Client *client, UA_UInt32 nodeIdNum, const char *name,
+            UA_Boolean *out) {
+    UA_Variant value;
+    UA_Variant_init(&value);
+    UA_StatusCode res = UA_Client_readValueAttribute(
+        client, UA_NODEID_NUMERIC(1, nodeIdNum), &value);
+    if(res != UA_STATUSCODE_GOOD) {
+        printf("FAIL: read %s (0x%08x)\n", name, (unsigned)res);
+        return 1;
+    }
+    if(!UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_BOOLEAN])) {
+        printf("FAIL: %s is not Boolean\n", name);
+        UA_Variant_clear(&value);
+        return 1;
+    }
+    *out = *(UA_Boolean *)value.data;
+    printf("READ %s=%s\n", name, *out ? "true" : "false");
+    UA_Variant_clear(&value);
+    return 0;
+}
+
 int
 main(int argc, char *argv[]) {
     const char *endpoint =
@@ -120,15 +145,18 @@ main(int argc, char *argv[]) {
     }
     printf("PASS: connected to %s\n", endpoint);
 
-    /* 1. Read all four nodes */
-    double temperature = 0.0, vibration = 0.0, setpoint = 0.0;
+    /* 1. Read all six nodes */
+    double temperature = 0.0, vibration = 0.0, setpoint = 0.0, fanSpeed = 0.0;
     UA_UInt32 count = 0;
+    UA_Boolean alarm = false;
     failures += readDouble(client, 1001, "Temperature", &temperature);
     failures += readDouble(client, 1002, "Vibration", &vibration);
     failures += readUInt32(client, 1003, "Count", &count);
     failures += readDouble(client, 1004, "Setpoint", &setpoint);
+    failures += readDouble(client, 1005, "FanSpeed", &fanSpeed);
+    failures += readBoolean(client, 1006, "Alarm", &alarm);
     if(failures == 0)
-        printf("PASS: all four nodes readable\n");
+        printf("PASS: all six nodes readable\n");
     if(temperature < 10.0 || temperature > 40.0) {
         printf("FAIL: Temperature %.2f outside sane range [10,40]\n",
                temperature);
@@ -136,6 +164,14 @@ main(int argc, char *argv[]) {
     }
     if(vibration < 0.0 || vibration > 10.0) {
         printf("FAIL: Vibration %.2f outside sane range [0,10]\n", vibration);
+        failures++;
+    }
+    if(fanSpeed < 0.0 || fanSpeed > 100.0) {
+        printf("FAIL: FanSpeed %.2f outside sane range [0,100]\n", fanSpeed);
+        failures++;
+    }
+    if(alarm) {
+        printf("FAIL: Alarm is true in the normal regime\n");
         failures++;
     }
 
@@ -157,6 +193,26 @@ main(int argc, char *argv[]) {
             failures++;
         } else {
             printf("PASS: Setpoint write/read-back 24.0\n");
+        }
+    }
+
+    /* 2b. Write FanSpeed = 75.0, read it back */
+    UA_Variant_init(&wv);
+    double newFanSpeed = 75.0;
+    UA_Variant_setScalar(&wv, &newFanSpeed, &UA_TYPES[UA_TYPES_DOUBLE]);
+    res = UA_Client_writeValueAttribute(client, UA_NODEID_NUMERIC(1, 1005),
+                                        &wv);
+    if(res != UA_STATUSCODE_GOOD) {
+        printf("FAIL: write FanSpeed (0x%08x)\n", (unsigned)res);
+        failures++;
+    } else {
+        double back = 0.0;
+        failures += readDouble(client, 1005, "FanSpeed-after-write", &back);
+        if(back != 75.0) {
+            printf("FAIL: FanSpeed read back %.2f, expected 75.0\n", back);
+            failures++;
+        } else {
+            printf("PASS: FanSpeed write/read-back 75.0\n");
         }
     }
 
