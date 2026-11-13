@@ -118,9 +118,12 @@ endpoints via the QNX dashboard's OpenSSL 3.6.3 are a stretch goal).
 ## Upstream
 
 - Upstream: https://github.com/open62541/open62541 (MPL-2.0)
-- Fixes offered upstream: PR with G1+G2 (link recorded in STATUS.md once
-  opened). G3+G4 are build-system fixes in `patches/` (same pattern as the
-  existing APPLE / OpenBSD / win32 exclusions) and can follow as a second PR.
+- Fixes offered upstream: **PR [#8717](https://github.com/open62541/open62541/pull/8717)**
+  ("fix(arch): build the POSIX architecture on QNX 8.0 (1.5 backport)") —
+  G2+G3+G4 against the `1.5` branch. G1 is already on 1.5 via upstream
+  `2c9beadfc` (stdio_lim include removed entirely). Note: upstream `master`
+  already carries the equivalent QNX 8.0 fix (`667acbc69`, 2026-11-11) — this
+  PR is the backport to the 1.5 maintenance line, which still lacked it.
 - Known non-issues (verified, not assumed): epoll (the `select()` fallback
   is automatic), raw-Ethernet PubSub (Linux-guarded, out of scope),
   `sys/inotify.h` (present in SDP 8.0).
