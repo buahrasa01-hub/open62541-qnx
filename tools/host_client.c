@@ -13,10 +13,10 @@
  *   see scripts/build-host-client.sh
  *   gcc -std=c99 -I<build-dir> host_client.c <build-dir>/open62541.c \
  *       -lm -lpthread -o host_client
+ * NOTE: this file includes the single amalgamated header "open62541.h"
+ * (the standard single-file usage), not the modular open62541/*.h tree.
  */
-#include <open62541/client.h>
-#include <open62541/client_highlevel.h>
-#include <open62541/client_subscriptions.h>
+#include "open62541.h"
 
 #include <stdint.h>
 #include <stdio.h>

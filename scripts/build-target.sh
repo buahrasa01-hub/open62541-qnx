@@ -39,7 +39,7 @@ $QCC -I"$INSTALL/include" "$REPO/tests-on-target/test_eventloop.c" \
     -L"$INSTALL/lib" -lopen62541 -lm -lsocket -o "$OUT/test_eventloop"
 
 echo "-- test_server_client"
-$QCC -pthread -I"$INSTALL/include" \
+$QCC -I"$INSTALL/include" \
     "$REPO/tests-on-target/test_server_client.c" \
     -L"$INSTALL/lib" -lopen62541 -lm -lsocket -o "$OUT/test_server_client"
 
