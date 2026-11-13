@@ -1,0 +1,29 @@
+From 319c4bb96285c30d0432ba3689d7d15594fb9aa1 Mon Sep 17 00:00:00 2001
+From: Bayu Luqman Fadilah <buahrasa01@gmail.com>
+Date: Fri, 13 Nov 2026 19:30:00 +0700
+Subject: [PATCH] arch: include <sys/queue.h> on QNX
+
+The bundled open62541_queue.h is skipped on QNX on the assumption that
+QNX provides the BSD queue macros -- but nothing included the system
+header, so LIST_ENTRY / LIST_HEAD were undefined and the build failed.
+Include <sys/queue.h> on the __QNX__ path.
+---
+diff --git a/arch/posix/eventloop_posix.h b/arch/posix/eventloop_posix.h
+index a5f5138..9733b01 100644
+--- a/arch/posix/eventloop_posix.h
++++ b/arch/posix/eventloop_posix.h
+@@ -18,7 +18,11 @@
+ #include "../common/eventloop_common.h"
+ #include "../../deps/mp_printf.h"
+ 
+-#if !defined(__QNX__)
++#if defined(__QNX__)
++/* QNX ships the BSD queue macros in <sys/queue.h>; use the system header
++ * instead of the bundled copy. */
++# include <sys/queue.h>
++#else
+ # include "../deps/open62541_queue.h"
+ #endif
+ 
+ -- 
+2.34.1

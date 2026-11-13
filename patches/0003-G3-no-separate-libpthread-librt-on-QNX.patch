@@ -1,0 +1,32 @@
+From 319c4bb96285c30d0432ba3689d7d15594fb9aa1 Mon Sep 17 00:00:00 2001
+From: Bayu Luqman Fadilah <buahrasa01@gmail.com>
+Date: Fri, 13 Nov 2026 19:30:00 +0700
+Subject: [PATCH] cmake: do not link -lpthread / -lrt on QNX
+
+QNX has no separate libpthread / librt -- both are integrated into
+libc. Linking them fails with 'cannot find -lpthread / -lrt'.
+Exclude QNX (CMAKE_SYSTEM_NAME STREQUAL "QNX") from both, following
+the existing APPLE / OpenBSD / Android exclusions.
+---
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b6e2ecb..22466ad 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -494,11 +494,13 @@ set(pkgcfg_requiresprivate "")
+ if("${UA_ARCHITECTURE}" STREQUAL "posix")
+     list(APPEND open62541_LIBRARIES "m")
+     list(APPEND pkgcfg_libsprivate "-lm")
+-    if(UA_MULTITHREADING GREATER_EQUAL 100 OR UA_BUILD_UNIT_TESTS AND NOT ANDROID_NDK_TOOLCHAIN_INCLUDED)
++    # QNX has no separate libpthread / librt (both are integrated into libc),
++    # so neither may be linked on QNX.
++    if((UA_MULTITHREADING GREATER_EQUAL 100 OR UA_BUILD_UNIT_TESTS AND NOT ANDROID_NDK_TOOLCHAIN_INCLUDED) AND NOT ${CMAKE_SYSTEM_NAME} STREQUAL "QNX")
+         list(APPEND open62541_PUBLIC_LIBRARIES "pthread")
+         list(APPEND pkgcfg_libsprivate "-lpthread")
+     endif()
+-    if(NOT APPLE AND (NOT ${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD") AND NOT ANDROID_NDK_TOOLCHAIN_INCLUDED)
++    if(NOT APPLE AND (NOT ${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD") AND NOT ANDROID_NDK_TOOLCHAIN_INCLUDED AND NOT ${CMAKE_SYSTEM_NAME} STREQUAL "QNX")
+         list(APPEND open62541_LIBRARIES "rt")
+         list(APPEND pkgcfg_libsprivate "-lrt")
+     endif()
+-- 
+2.34.1

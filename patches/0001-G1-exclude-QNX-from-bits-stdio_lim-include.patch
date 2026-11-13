@@ -1,0 +1,26 @@
+From 319c4bb96285c30d0432ba3689d7d15594fb9aa1 Mon Sep 17 00:00:00 2001
+From: Bayu Luqman Fadilah <buahrasa01@gmail.com>
+Date: Fri, 13 Nov 2026 19:30:00 +0700
+Subject: [PATCH] arch: exclude QNX from the <bits/stdio_lim.h> include
+
+The <bits/stdio_lim.h> header is a glibc internal header and does not
+exist on QNX, where <stdio.h> already defines FILENAME_MAX (as
+__PATH_MAX). Exclude __QNX__ from the include so the POSIX eventloop
+builds on QNX 8.0.
+---
+diff --git a/arch/posix/eventloop_posix.h b/arch/posix/eventloop_posix.h
+index a5f5138..9733b01 100644
+--- a/arch/posix/eventloop_posix.h
++++ b/arch/posix/eventloop_posix.h
+@@ -277,7 +281,9 @@ typedef int SOCKET;
+ 
+ #ifndef __ANDROID__
+ #ifndef __APPLE__
++#ifndef __QNX__
+ #include <bits/stdio_lim.h>
++#endif /* !__QNX__ */
+ #endif /* !__APPLE__ */
+ #endif /* !__ANDROID__ */
+ 
+-- 
+2.34.1
