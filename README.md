@@ -23,8 +23,9 @@ Dashboard (oss.qnx.com) lists **no** open62541 package at all. A direct
 | G1 | `arch/posix/eventloop_posix.h:276-282` | `#include <bits/stdio_lim.h>` — a glibc-internal header, absent on QNX | Exclude `__QNX__` from the include (`FILENAME_MAX` already comes from QNX `<stdio.h>`) |
 | G2 | `arch/posix/eventloop_posix.h:21-22` | The bundled `open62541_queue.h` is skipped on QNX, but nothing includes the system header → `LIST_ENTRY` / `LIST_HEAD` undefined | `#include <sys/queue.h>` on the `__QNX__` path |
 | G3 | `CMakeLists.txt:497-503` | Links `-lpthread -lrt`, which do not exist as separate libraries on QNX (both are in libc) | QNX exclusion, following the existing APPLE / OpenBSD / Android exclusions |
+| G4 | `CMakeLists.txt:501-510` | Socket API (`socket`, `getaddrinfo`, `setsockopt`, ...) lives in a separate `libsocket` on QNX, not in libc — every executable linking the library failed with undefined references | Link `socket` on QNX, following the win32 precedent (`ws2_32`) |
 
-That is the whole upstream delta: **~10 lines + a CMake toolchain file**.
+That is the whole upstream delta: **four small fixes + a CMake toolchain file**.
 The engineering depth is everything around it: on-target tests, a demo
 server, and a real client↔server round-trip on QNX-in-QEMU.
 
@@ -52,7 +53,7 @@ client) without that dependency.
 ## Repo layout
 
 ```
-patches/                        G1 + G2 + G3 as clean diffs vs upstream v1.5.1
+patches/                        G1 + G2 + G3 + G4 as clean diffs vs upstream v1.5.1
 cmake/toolchain-qnx-x86_64.cmake
                                 qcc + QNX system name (drops -lpthread/-lrt via G3)
 scripts/build.sh                clone v1.5.1 -> apply patches -> build lib + amalgamation
@@ -118,7 +119,8 @@ endpoints via the QNX dashboard's OpenSSL 3.6.3 are a stretch goal).
 
 - Upstream: https://github.com/open62541/open62541 (MPL-2.0)
 - Fixes offered upstream: PR with G1+G2 (link recorded in STATUS.md once
-  opened; G3 is a build-system exclusion that follows the same pattern).
+  opened). G3+G4 are build-system fixes in `patches/` (same pattern as the
+  existing APPLE / OpenBSD / win32 exclusions) and can follow as a second PR.
 - Known non-issues (verified, not assumed): epoll (the `select()` fallback
   is automatic), raw-Ethernet PubSub (Linux-guarded, out of scope),
   `sys/inotify.h` (present in SDP 8.0).

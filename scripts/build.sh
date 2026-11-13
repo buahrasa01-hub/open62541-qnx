@@ -99,6 +99,6 @@ int main(void) {
 }
 EOF
 qcc -Vgcc_ntox86_64 -std=c99 -I"$BUILD" "$WORK/amalgamation-check.c" \
-    "$BUILD/open62541.c" -lm -o "$WORK/amalgamation-check"
+    "$BUILD/open62541.c" -lm -lsocket -o "$WORK/amalgamation-check"
 file "$WORK/amalgamation-check"
 echo "BUILD OK: $INSTALL/lib/libopen62541.a"

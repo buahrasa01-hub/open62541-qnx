@@ -28,20 +28,20 @@ echo "== building QNX target binaries into $OUT =="
 
 echo "-- server_qnx_sensors"
 $QCC -I"$INSTALL/include" "$REPO/examples/server_qnx_sensors.c" \
-    -L"$INSTALL/lib" -lopen62541 -lm -o "$OUT/server_qnx_sensors"
+    -L"$INSTALL/lib" -lopen62541 -lm -lsocket -o "$OUT/server_qnx_sensors"
 
 echo "-- test_types_roundtrip"
 $QCC -I"$INSTALL/include" "$REPO/tests-on-target/test_types_roundtrip.c" \
-    -L"$INSTALL/lib" -lopen62541 -lm -o "$OUT/test_types_roundtrip"
+    -L"$INSTALL/lib" -lopen62541 -lm -lsocket -o "$OUT/test_types_roundtrip"
 
 echo "-- test_eventloop"
 $QCC -I"$INSTALL/include" "$REPO/tests-on-target/test_eventloop.c" \
-    -L"$INSTALL/lib" -lopen62541 -lm -o "$OUT/test_eventloop"
+    -L"$INSTALL/lib" -lopen62541 -lm -lsocket -o "$OUT/test_eventloop"
 
 echo "-- test_server_client"
 $QCC -pthread -I"$INSTALL/include" \
     "$REPO/tests-on-target/test_server_client.c" \
-    -L"$INSTALL/lib" -lopen62541 -lm -o "$OUT/test_server_client"
+    -L"$INSTALL/lib" -lopen62541 -lm -lsocket -o "$OUT/test_server_client"
 
 echo "-- verifying artifacts"
 for f in server_qnx_sensors test_types_roundtrip test_eventloop test_server_client; do

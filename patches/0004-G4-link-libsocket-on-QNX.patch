@@ -1,0 +1,29 @@
+From 319c4bb96285c30d0432ba3689d7d15594fb9aa1 Mon Sep 17 00:00:00 2001
+From: Bayu Luqman Fadilah <buahrasa01@gmail.com>
+Date: Fri, 13 Nov 2026 19:30:00 +0700
+Subject: [PATCH] cmake: link -lsocket on QNX
+
+QNX keeps the socket API (socket, getaddrinfo, setsockopt, ...) in a
+separate libsocket; it is not part of libc. Without it every executable
+linking the library fails with undefined references to the socket
+functions. Link it on QNX, following the win32 precedent (ws2_32).
+---
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 22466ad..031b0b1 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -504,6 +504,12 @@ if("${UA_ARCHITECTURE}" STREQUAL "posix")
+         list(APPEND open62541_LIBRARIES "rt")
+         list(APPEND pkgcfg_libsprivate "-lrt")
+     endif()
++    if(${CMAKE_SYSTEM_NAME} STREQUAL "QNX")
++        # QNX keeps the socket API in a separate libsocket (like ws2_32 on
++        # Windows); it is not part of libc.
++        list(APPEND open62541_LIBRARIES "socket")
++        list(APPEND pkgcfg_libsprivate "-lsocket")
++    endif()
+ elseif("${UA_ARCHITECTURE}" STREQUAL "win32")
+     list(APPEND open62541_LIBRARIES "ws2_32")
+     list(APPEND open62541_LIBRARIES "iphlpapi")
+-- 
+2.34.1
