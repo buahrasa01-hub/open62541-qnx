@@ -217,6 +217,20 @@ scripts/build-encryption.sh    # -> build-encryption/install/lib/libopen62541.a
   benign: the RSA test certificate cannot back an ECC policy, so that
   policy is simply not offered.
 
+## Codelab
+
+The porting process is taught step by step in the companion codelab
+**"Port a POSIX C Library to QNX 8.0 under QEMU"** (official QNX
+codelab format, source in `docs/codelab/port-open62541-qnx.md`):
+
+- **Read it:** https://buahrasa01-hub.github.io/open62541-qnx/codelab/port-open62541-qnx.html
+- 9 steps, ~60 minutes: licence + SDP install, the `qcc` toolchain,
+  a cross-compiled hello, a minimal headless QEMU image, the
+  library's build system, the toolchain file and defects G1–G4,
+  on-target proof, and packaging the port (plus an optional
+  encryption section). Every command is copy-pasteable; every
+  expected output shown is real, captured from the 2026-11-13 run.
+
 ## Upstream
 
 - Upstream: https://github.com/open62541/open62541 (MPL-2.0)
